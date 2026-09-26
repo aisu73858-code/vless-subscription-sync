@@ -36,24 +36,19 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$BB_TOKEN"
-          cat > "$RUNNER_TEMP/bitbucket-askpass" <<'EOF'
-          #!/bin/sh
-          case "$1" in
-            *Username*) printf '%s\n' 'x-token-auth' ;;
-            *Password*) printf '%s\n' "$BB_TOKEN" ;;
-          esac
-          EOF
-          chmod 700 "$RUNNER_TEMP/bitbucket-askpass"
-          export GIT_ASKPASS="$RUNNER_TEMP/bitbucket-askpass"
-          export GIT_TERMINAL_PROMPT=0
-          git clone --quiet 'https://bitbucket.org/casedas/zieng2-wl-mirror.git' mirror
-          cp vless_universal.txt mirror/vless_universal.txt
-          if git -C mirror diff --quiet -- vless_universal.txt; then
+          curl --fail --location --retry 3 --max-time 30 \
+            --output current.txt \
+            'https://bitbucket.org/casedas/zieng2-wl-mirror/raw/main/vless_universal.txt'
+          if cmp -s vless_universal.txt current.txt; then
             echo 'Mirror already current'
             exit 0
           fi
-          git -C mirror config user.name 'Subscription Mirror'
-          git -C mirror config user.email 'mirror@users.noreply.bitbucket.org'
-          git -C mirror add vless_universal.txt
-          git -C mirror commit -m 'Sync upstream subscription [skip ci]'
-          git -C mirror push origin HEAD:main
+          curl --fail-with-body --silent --show-error --max-time 60 \
+            --request POST \
+            --header "Authorization: Bearer $BB_TOKEN" \
+            --form 'vless_universal.txt=@vless_universal.txt' \
+            --form 'branch=main' \
+            --form 'message=Sync upstream subscription [skip ci]' \
+            'https://api.bitbucket.org/2.0/repositories/casedas/zieng2-wl-mirror/src' \
+            --output response.json
+          echo 'Bitbucket mirror updated'
