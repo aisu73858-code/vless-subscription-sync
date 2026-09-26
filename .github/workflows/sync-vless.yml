@@ -2,7 +2,7 @@ name: Sync VLESS subscription to Bitbucket
 
 on:
   schedule:
-    - cron: '15 * * * *'
+    - cron: '3-58/5 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -55,7 +55,7 @@ jobs:
 
       - name: Check out schedule repository
         if: always()
-        uses: actions/checkout@v4.4.0
+        uses: actions/checkout@v6.1.0
 
       - name: Keep hourly schedule active
         if: always()
