@@ -1,0 +1,59 @@
+name: Sync VLESS subscription to Bitbucket
+
+on:
+  schedule:
+    - cron: '15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-vless-subscription
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download and validate upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --max-time 30 \
+            --output vless_universal.txt \
+            'https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt'
+          count=$(grep -c '^vless://' vless_universal.txt || true)
+          if [ "$count" -lt 20 ]; then
+            echo "Upstream contains only $count VLESS entries; refusing to publish"
+            exit 1
+          fi
+
+      - name: Update Bitbucket mirror
+        shell: bash
+        env:
+          BB_TOKEN: ${{ secrets.BITBUCKET_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$BB_TOKEN"
+          cat > "$RUNNER_TEMP/bitbucket-askpass" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' 'x-token-auth' ;;
+            *Password*) printf '%s\n' "$BB_TOKEN" ;;
+          esac
+          EOF
+          chmod 700 "$RUNNER_TEMP/bitbucket-askpass"
+          export GIT_ASKPASS="$RUNNER_TEMP/bitbucket-askpass"
+          export GIT_TERMINAL_PROMPT=0
+          git clone --quiet 'https://bitbucket.org/casedas/zieng2-wl-mirror.git' mirror
+          cp vless_universal.txt mirror/vless_universal.txt
+          if git -C mirror diff --quiet -- vless_universal.txt; then
+            echo 'Mirror already current'
+            exit 0
+          fi
+          git -C mirror config user.name 'Subscription Mirror'
+          git -C mirror config user.email 'mirror@users.noreply.bitbucket.org'
+          git -C mirror add vless_universal.txt
+          git -C mirror commit -m 'Sync upstream subscription [skip ci]'
+          git -C mirror push origin HEAD:main
