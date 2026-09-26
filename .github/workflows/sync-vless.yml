@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: sync-vless-subscription
@@ -52,3 +52,26 @@ jobs:
             'https://api.bitbucket.org/2.0/repositories/casedas/zieng2-wl-mirror/src' \
             --output response.json
           echo 'Bitbucket mirror updated'
+
+      - name: Check out schedule repository
+        if: always()
+        uses: actions/checkout@v4.4.0
+
+      - name: Keep hourly schedule active
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          last_commit=$(git log -1 --format=%ct)
+          now=$(date -u +%s)
+          if [[ -f .github/last-activity.txt ]] && (( now - last_commit < 30 * 24 * 3600 )); then
+            echo 'GitHub repository has recent activity'
+            exit 0
+          fi
+          mkdir -p .github
+          date -u +%FT%TZ > .github/last-activity.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/last-activity.txt
+          git commit -m 'Keep hourly subscription schedule active'
+          git push origin HEAD:main
