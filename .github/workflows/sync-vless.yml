@@ -53,6 +53,50 @@ jobs:
             --output response.json
           echo 'Bitbucket mirror updated'
 
+      - name: Download and validate mobile CIDR subscription
+        id: mobile_download
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --max-time 30 \
+            --output mobile-cidr.txt \
+            'https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/Vless-Reality-White-Lists-Rus-Mobile.txt'
+          count=$(grep -Ec '^[A-Za-z][A-Za-z0-9+.-]*://' mobile-cidr.txt || true)
+          if [ "$count" -lt 10 ]; then
+            echo "Mobile CIDR subscription contains only $count proxy entries; refusing to publish"
+            exit 1
+          fi
+
+      - name: Update mobile CIDR mirror
+        if: always() && steps.mobile_download.outcome == 'success'
+        shell: bash
+        env:
+          BB_TOKEN: ${{ secrets.BITBUCKET_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$BB_TOKEN"
+          status=$(curl --silent --show-error --location --retry 3 --max-time 30 \
+            --output current-mobile.txt --write-out '%{http_code}' \
+            'https://bitbucket.org/casedas/zieng2-wl-mirror/raw/main/Vless-Reality-White-Lists-Rus-Mobile.txt')
+          if [ "$status" = 200 ] && cmp -s mobile-cidr.txt current-mobile.txt; then
+            echo 'Mobile CIDR mirror already current'
+            exit 0
+          fi
+          if [ "$status" != 200 ] && [ "$status" != 404 ]; then
+            echo "Bitbucket returned HTTP $status for mobile CIDR mirror"
+            exit 1
+          fi
+          curl --fail-with-body --silent --show-error --max-time 60 \
+            --request POST \
+            --header "Authorization: Bearer $BB_TOKEN" \
+            --form 'Vless-Reality-White-Lists-Rus-Mobile.txt=@mobile-cidr.txt' \
+            --form 'branch=main' \
+            --form 'message=Sync mobile CIDR subscription [skip ci]' \
+            'https://api.bitbucket.org/2.0/repositories/casedas/zieng2-wl-mirror/src' \
+            --output response-mobile.json
+          echo 'Mobile CIDR mirror updated'
+
       - name: Check out schedule repository
         if: always()
         uses: actions/checkout@v6.1.0
